@@ -43,11 +43,11 @@ public:
   {
     iPreGenerationSetup(begin(), end());
     //for (auto &&iRatedIndividual : mPopulation)
-    Concurrency::parallel_for_each(begin(), end(), [&](decltype(*begin()) && iRatedIndividual)
+    Concurrency::parallel_for_each(begin(), end(), [&](decltype(*begin()) &&iRatedIndividual)
     {
       iRatedIndividual.mScore = iFitnessFunction(iRatedIndividual.mIndividual);
     });
-    std::sort(begin(), end(), [](decltype(*begin()) && iLeft, decltype(*begin()) && iRight)
+    std::sort(begin(), end(), [](decltype(*begin()) &&iLeft, decltype(*begin()) &&iRight)
     {
       return iLeft.mScore > iRight.mScore;
     });

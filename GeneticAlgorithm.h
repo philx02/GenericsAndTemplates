@@ -43,7 +43,7 @@ public:
   {
     iPreGenerationSetup(begin(), end());
     //for (auto &&iRatedIndividual : mPopulation)
-    Concurrency::parallel_for_each(begin(), end(), [&](decltype(*begin()) &&iRatedIndividual)
+    concurrency::parallel_for_each(begin(), end(), [&](decltype(*begin()) && iRatedIndividual) //restrict(amp)
     {
       iRatedIndividual.mScore = iFitnessFunction(iRatedIndividual.mIndividual);
     });

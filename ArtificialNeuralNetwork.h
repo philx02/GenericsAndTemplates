@@ -3,31 +3,134 @@
 #include <array>
 #include <cstddef>
 #include <algorithm>
+#include <xutility>
 
-template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename _ActivationFunction, typename _OutputFunction >
+namespace smuds
+{
+
+template< typename T, size_t Size >
+class array
+{
+public:
+  typedef T value_type;
+  typedef decltype(Size) size_type;
+  typedef value_type * pointer;
+  typedef pointer iterator;
+  typedef const pointer const_iterator;
+
+  // unrestricted
+
+  inline T & operator[](size_t iIndex)
+  {
+    return mElements[iIndex];
+  }
+  inline const T & operator[](size_t iIndex) const
+  {
+    return mElements[iIndex];
+  }
+
+  iterator begin()
+  {
+    return std::addressof(mElements[0]);
+  }
+  const value_type * const begin() const
+  {
+    return std::addressof(mElements[0]);
+  }
+
+  iterator end()
+  {
+    return std::addressof(mElements[Size]);
+  }
+  const value_type * const end() const
+  {
+    return std::addressof(mElements[Size]);
+  }
+
+  // restrict(amp)
+
+  inline T & operator[](size_t iIndex) restrict(amp)
+  {
+    return mElements[iIndex];
+  }
+  inline const T & operator[](size_t iIndex) const restrict(amp)
+  {
+    return mElements[iIndex];
+  }
+
+  iterator begin() restrict(amp)
+  {
+    return std::addressof(mElements[0]);
+  }
+  const_iterator begin() const restrict(amp)
+  {
+    return std::addressof(mElements[0]);
+  }
+
+  iterator end() restrict(amp)
+  {
+    return std::addressof(mElements[Size]);
+  }
+  const_iterator end() const restrict(amp)
+  {
+    return std::addressof(mElements[Size]);
+  }
+
+private:
+  T mElements[Size];
+};
+}
+
+namespace std
+{
+template< typename T, size_t Size >
+typename smuds::array< T, Size >::iterator begin(smuds::array< T, Size > &iArray) restrict(amp)
+{
+  return iArray.begin();
+}
+template< typename T, size_t Size >
+typename smuds::array< T, Size >::iterator end(smuds::array< T, Size > &iArray) restrict(amp)
+{
+  return iArray.end();
+}
+template< typename T, size_t Size >
+typename smuds::array< T, Size >::iterator begin(smuds::array< T, Size > &iArray)
+{
+  return iArray.begin();
+}
+template< typename T, size_t Size >
+typename smuds::array< T, Size >::iterator end(smuds::array< T, Size > &iArray)
+{
+  return iArray.end();
+}
+}
+
+template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename _ActivationPolicy, typename _OutputPolicy >
 class ArtificialNeuralNetwork
 {
 public:
   typedef T value_type;
-  typedef _ActivationFunction ActivationFunction;
-  typedef _OutputFunction OutputFunction;
-  typedef std::array< T, InputLayerSize > Input;
-  typedef std::array< Input, HiddenLayerSize > InputToHiddenWeights;
-  typedef std::array< std::array< T, HiddenLayerSize >, OutputLayerSize > HiddenToOutputWeights;
-  typedef std::array< T, OutputLayerSize > Output;
+  typedef _ActivationPolicy ActivationPolicy;
+  typedef _OutputPolicy OutputPolicy;
+  typedef smuds::array< T, InputLayerSize > Input;
+  typedef smuds::array< Input, HiddenLayerSize > InputToHiddenWeights;
+  typedef smuds::array< smuds::array< T, HiddenLayerSize >, OutputLayerSize > HiddenToOutputWeights;
+  typedef smuds::array< T, OutputLayerSize > Output;
 
-  typedef std::array< T, HiddenLayerSize > HiddenBiases;
+  typedef smuds::array< T, HiddenLayerSize > HiddenBiases;
   typedef Output OutputBiases;
 
-  ArtificialNeuralNetwork(ActivationFunction iActivationFunction, OutputFunction iOutputFunction)
-    : mActivationFunction(std::move(iActivationFunction))
-    , mOutputFunction(std::move(iOutputFunction))
+  inline Output compute(const Input &iInput) const restrict(amp)
   {
-  }
-
-  inline Output compute(const Input &iInput) const
-  {
-    return computeLayer< OutputLayerSize >(mHiddenToOutput, mOutputBiases, computeLayer< HiddenLayerSize >(mInputToHidden, mHiddenBiases, iInput, mActivationFunction), mOutputFunction);
+    auto wActivationFunction = [](const T &iInput) restrict(amp)
+    {
+      return ActivationPolicy::compute(iInput);
+    };
+    auto wOutputFunction = [](const T &iInput) restrict(amp)
+    {
+      return OutputPolicy::compute(iInput);
+    };
+    return computeLayer< OutputLayerSize >(mHiddenToOutput, mOutputBiases, computeLayer< HiddenLayerSize >(mInputToHidden, mHiddenBiases, iInput, wActivationFunction), wOutputFunction);
   }
 
   template< typename Function >
@@ -75,10 +178,10 @@ public:
   }
 
 private:
-  template< std::size_t ToLayerSize, std::size_t FromLayerSize >
-  inline std::array< value_type, ToLayerSize > computeLayer(const std::array< std::array< value_type, FromLayerSize >, ToLayerSize > &wWeightMatrix, const std::array< value_type, ToLayerSize > &wBiases, const std::array< value_type, FromLayerSize > &iFromLayerInput, ActivationFunction &&iActivationFunction) const
+  template< std::size_t ToLayerSize, std::size_t FromLayerSize, typename ActivationFunction >
+  inline smuds::array< value_type, ToLayerSize > computeLayer(const smuds::array< smuds::array< value_type, FromLayerSize >, ToLayerSize > &wWeightMatrix, const smuds::array< value_type, ToLayerSize > &wBiases, const smuds::array< value_type, FromLayerSize > &iFromLayerInput, ActivationFunction &&iActivationFunction) const restrict(amp)
   {
-    std::array< value_type, ToLayerSize > wToLayerOutput;
+    smuds::array< value_type, ToLayerSize > wToLayerOutput;
     for (std::size_t wToNeuronIndex = 0; wToNeuronIndex < ToLayerSize; ++wToNeuronIndex)
     {
       value_type wSum = 0;
@@ -92,8 +195,6 @@ private:
     return wToLayerOutput;
   }
 
-  ActivationFunction mActivationFunction;
-  OutputFunction mOutputFunction;
   InputToHiddenWeights mInputToHidden;
   HiddenToOutputWeights mHiddenToOutput;
   HiddenBiases mHiddenBiases;
@@ -109,11 +210,11 @@ inline void initializeWeights(WeightType &ioWeights, InitializeFunction &&iIniti
   }
 }
 
-template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename ActivationFunction, typename OutputFunction, typename InitializeFunction >
-ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationFunction, OutputFunction > createAndInitializeArtificialNeuralNetwork(ActivationFunction &&iActivationFunction, OutputFunction &&iOutputFunction, InitializeFunction &&iInitializeFunction)
+template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename ActivationPolicy, typename OutputPolicy, typename InitializeFunction >
+ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationPolicy, OutputPolicy > createAndInitializeArtificialNeuralNetwork(InitializeFunction &&iInitializeFunction)
 {
-  typedef ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationFunction, OutputFunction > Ann;
-  Ann wAnn(std::move(iActivationFunction), std::move(iOutputFunction));
+  typedef ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationPolicy, OutputPolicy > Ann;
+  Ann wAnn;
   wAnn.applyToInputToHiddenWeights([&](Ann::InputToHiddenWeights &ioWeights)
   {
     initializeWeights< Ann::value_type, Ann::InputToHiddenWeights >(ioWeights, iInitializeFunction);
@@ -132,3 +233,40 @@ ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, Ac
   });
   return wAnn;
 }
+
+// Typical policies
+
+template< typename T, std::size_t Span, std::size_t Offset >
+class LogisticFunctionPolicy
+{
+public:
+  static inline T compute(const T &iInput) restrict(amp)
+  {
+    static const auto wSpan = static_cast< T >(Span);
+    static const auto wOffset = static_cast< T >(Offset);
+    static const auto wOne = static_cast< T >(1);
+    return wSpan / (wOne + std::exp(-iInput)) + wOffset;
+  }
+};
+
+template< typename T >
+class LinearFunctionPolicy
+{
+public:
+  static inline T compute(const T &iInput) restrict(amp)
+  {
+    return iInput;
+  }
+};
+
+template< typename T, std::size_t LowerLimit, std::size_t HigherLimit >
+class SaturatedLinearFunctionPolicy
+{
+public:
+  static inline T compute(const T &iInput) restrict(amp)
+  {
+    static const auto wLowerLimit = static_cast< T >(LowerLimit);
+    static const auto wHigherLimit = static_cast< T >(HigherLimit);
+    return iInput > wHigherLimit ? wHigherLimit : (iInput < wLowerLimit ? wLowerLimit : iInput);
+  }
+};

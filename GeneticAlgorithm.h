@@ -42,10 +42,10 @@ public:
   inline bool runOneGeneration(FitnessFunction &&iFitnessFunction, ReproductionFunction &&iReproductionFunction, PreGenerationSetup &&iPreGenerationSetup, PostGenerationEvaluation &&iPostGenerationEvaluation)
   {
     iPreGenerationSetup(begin(), end());
-    //for (auto &&iRatedIndividual : mPopulation)
-    concurrency::parallel_for_each(begin(), end(), [&](decltype(*begin()) && iRatedIndividual) //restrict(amp)
+    concurrency::array< RatedIndividual, 1 > wPopulationAmpArray(size(), begin(), end());
+    concurrency::parallel_for_each(wPopulationAmpArray.extent, [=, &wPopulationAmpArray](auto && iIndex) restrict(amp)
     {
-      iRatedIndividual.mScore = iFitnessFunction(iRatedIndividual.mIndividual);
+      wPopulationAmpArray[iIndex].mScore = iFitnessFunction(wPopulationAmpArray[iIndex].mIndividual);
     });
     std::sort(begin(), end(), [](decltype(*begin()) &&iLeft, decltype(*begin()) &&iRight)
     {
@@ -70,6 +70,11 @@ public:
   inline typename Population::iterator end()
   {
     return std::end(mPopulation);
+  }
+
+  inline typename Population::size_type size()
+  {
+    return mPopulation.size();
   }
 
 private:

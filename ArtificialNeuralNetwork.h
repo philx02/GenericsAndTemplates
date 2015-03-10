@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <xutility>
 
-namespace smuds
+namespace polyview
 {
 
 template< typename T, size_t Size >
@@ -22,111 +22,146 @@ public:
 
   inline T & operator[](size_t iIndex)
   {
-    return mElements[iIndex];
+    return mArray[iIndex];
   }
   inline const T & operator[](size_t iIndex) const
   {
-    return mElements[iIndex];
+    return mArray[iIndex];
   }
 
-  iterator begin()
+  inline auto begin()
   {
-    return std::addressof(mElements[0]);
+    return std::begin(mArray);
   }
-  const value_type * const begin() const
+  inline auto begin() const
   {
-    return std::addressof(mElements[0]);
+    return std::begin(mArray);
   }
 
-  iterator end()
+  inline auto end()
   {
-    return std::addressof(mElements[Size]);
+    return std::end(mArray);
   }
-  const value_type * const end() const
+  inline auto end() const
   {
-    return std::addressof(mElements[Size]);
+    return std::end(mArray);
   }
 
   // restrict(amp)
 
   inline T & operator[](size_t iIndex) restrict(amp)
   {
-    return mElements[iIndex];
+    return reinterpret_cast< T * >(&mArray)[iIndex];
   }
   inline const T & operator[](size_t iIndex) const restrict(amp)
   {
-    return mElements[iIndex];
+    return reinterpret_cast< const T * >(&mArray)[iIndex];
   }
 
-  iterator begin() restrict(amp)
+  inline auto begin() restrict(amp)
   {
-    return std::addressof(mElements[0]);
+    return std::addressof(reinterpret_cast< T * >(&mArray)[0]);
   }
-  const_iterator begin() const restrict(amp)
+  inline auto begin() const restrict(amp)
   {
-    return std::addressof(mElements[0]);
+    return std::addressof(reinterpret_cast< T * >(&mArray)[0]);
   }
 
-  iterator end() restrict(amp)
+  inline auto end() restrict(amp)
   {
-    return std::addressof(mElements[Size]);
+    return std::addressof(reinterpret_cast< T * >(&mArray)[Size]);
   }
-  const_iterator end() const restrict(amp)
+  inline auto end() const restrict(amp)
   {
-    return std::addressof(mElements[Size]);
+    return std::addressof(reinterpret_cast< T * >(&mArray)[Size]);
   }
 
 private:
-  T mElements[Size];
+  std::array< T, Size > mArray;
 };
 }
 
 namespace std
 {
+
+// unrestricted
+
 template< typename T, size_t Size >
-typename smuds::array< T, Size >::iterator begin(smuds::array< T, Size > &iArray) restrict(amp)
+inline auto begin(polyview::array< T, Size > &iArray)
 {
   return iArray.begin();
 }
 template< typename T, size_t Size >
-typename smuds::array< T, Size >::iterator end(smuds::array< T, Size > &iArray) restrict(amp)
+inline auto end(polyview::array< T, Size > &iArray)
 {
   return iArray.end();
 }
+
+// restrict(amp)
+
 template< typename T, size_t Size >
-typename smuds::array< T, Size >::iterator begin(smuds::array< T, Size > &iArray)
+inline auto begin(polyview::array< T, Size > &iArray) restrict(amp)
 {
   return iArray.begin();
 }
 template< typename T, size_t Size >
-typename smuds::array< T, Size >::iterator end(smuds::array< T, Size > &iArray)
+inline auto end(polyview::array< T, Size > &iArray) restrict(amp)
 {
   return iArray.end();
 }
 }
 
-template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename _ActivationPolicy, typename _OutputPolicy >
+template< typename T, size_t InputLayerSize, size_t HiddenLayerSize, size_t OutputLayerSize, typename _ActivationPolicy, typename _OutputPolicy >
 class ArtificialNeuralNetwork
 {
 public:
   typedef T value_type;
   typedef _ActivationPolicy ActivationPolicy;
   typedef _OutputPolicy OutputPolicy;
-  typedef smuds::array< T, InputLayerSize > Input;
-  typedef smuds::array< Input, HiddenLayerSize > InputToHiddenWeights;
-  typedef smuds::array< smuds::array< T, HiddenLayerSize >, OutputLayerSize > HiddenToOutputWeights;
-  typedef smuds::array< T, OutputLayerSize > Output;
+  typedef polyview::array< T, InputLayerSize > Input;
+  typedef polyview::array< Input, HiddenLayerSize > InputToHiddenWeights;
+  typedef polyview::array< polyview::array< T, HiddenLayerSize >, OutputLayerSize > HiddenToOutputWeights;
+  typedef polyview::array< T, OutputLayerSize > Output;
 
-  typedef smuds::array< T, HiddenLayerSize > HiddenBiases;
+  typedef polyview::array< T, HiddenLayerSize > HiddenBiases;
   typedef Output OutputBiases;
 
-  inline Output compute(const Input &iInput) const restrict(amp)
+  inline static size_t inputLayerSize()
   {
-    auto wActivationFunction = [](const T &iInput) restrict(amp)
+    return InputLayerSize;
+  }
+  inline static size_t hiddenLayerSize()
+  {
+    return HiddenLayerSize;
+  }
+  inline static size_t outputLayerSize()
+  {
+    return OutputLayerSize;
+  }
+  inline static size_t inputToHiddenWeightSize()
+  {
+    return InputLayerSize * HiddenLayerSize;
+  }
+  inline static size_t hiddenToOutputWeightSize()
+  {
+    return HiddenLayerSize * OutputLayerSize;
+  }
+  inline static size_t totalWeightSize()
+  {
+    return inputToHiddenWeightSize() + hiddenToOutputWeightSize();
+  }
+  inline static size_t totalBiasesSize()
+  {
+    return HiddenLayerSize + OutputLayerSize;
+  }
+    
+  inline Output compute(const Input &iInput) const restrict(cpu, amp)
+  {
+    auto wActivationFunction = [](const T &iInput) restrict(cpu, amp)
     {
       return ActivationPolicy::compute(iInput);
     };
-    auto wOutputFunction = [](const T &iInput) restrict(amp)
+    auto wOutputFunction = [](const T &iInput) restrict(cpu, amp)
     {
       return OutputPolicy::compute(iInput);
     };
@@ -178,14 +213,14 @@ public:
   }
 
 private:
-  template< std::size_t ToLayerSize, std::size_t FromLayerSize, typename ActivationFunction >
-  inline smuds::array< value_type, ToLayerSize > computeLayer(const smuds::array< smuds::array< value_type, FromLayerSize >, ToLayerSize > &wWeightMatrix, const smuds::array< value_type, ToLayerSize > &wBiases, const smuds::array< value_type, FromLayerSize > &iFromLayerInput, ActivationFunction &&iActivationFunction) const restrict(amp)
+  template< size_t ToLayerSize, size_t FromLayerSize, typename ActivationFunction >
+  inline polyview::array< value_type, ToLayerSize > computeLayer(const polyview::array< polyview::array< value_type, FromLayerSize >, ToLayerSize > &wWeightMatrix, const polyview::array< value_type, ToLayerSize > &wBiases, const polyview::array< value_type, FromLayerSize > &iFromLayerInput, ActivationFunction &&iActivationFunction) const restrict(cpu, amp)
   {
-    smuds::array< value_type, ToLayerSize > wToLayerOutput;
-    for (std::size_t wToNeuronIndex = 0; wToNeuronIndex < ToLayerSize; ++wToNeuronIndex)
+    polyview::array< value_type, ToLayerSize > wToLayerOutput;
+    for (size_t wToNeuronIndex = 0; wToNeuronIndex < ToLayerSize; ++wToNeuronIndex)
     {
       value_type wSum = 0;
-      for (std::size_t wFromNeuronIndex = 0; wFromNeuronIndex < FromLayerSize; ++wFromNeuronIndex)
+      for (size_t wFromNeuronIndex = 0; wFromNeuronIndex < FromLayerSize; ++wFromNeuronIndex)
       {
         wSum += wWeightMatrix[wToNeuronIndex][wFromNeuronIndex] * iFromLayerInput[wFromNeuronIndex];
       }
@@ -210,7 +245,7 @@ inline void initializeWeights(WeightType &ioWeights, InitializeFunction &&iIniti
   }
 }
 
-template< typename T, std::size_t InputLayerSize, std::size_t HiddenLayerSize, std::size_t OutputLayerSize, typename ActivationPolicy, typename OutputPolicy, typename InitializeFunction >
+template< typename T, size_t InputLayerSize, size_t HiddenLayerSize, size_t OutputLayerSize, typename ActivationPolicy, typename OutputPolicy, typename InitializeFunction >
 ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationPolicy, OutputPolicy > createAndInitializeArtificialNeuralNetwork(InitializeFunction &&iInitializeFunction)
 {
   typedef ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, ActivationPolicy, OutputPolicy > Ann;
@@ -236,11 +271,11 @@ ArtificialNeuralNetwork< T, InputLayerSize, HiddenLayerSize, OutputLayerSize, Ac
 
 // Typical policies
 
-template< typename T, std::size_t Span, std::size_t Offset >
+template< typename T, size_t Span, size_t Offset >
 class LogisticFunctionPolicy
 {
 public:
-  static inline T compute(const T &iInput) restrict(amp)
+  static inline T compute(const T &iInput) restrict(cpu, amp)
   {
     static const auto wSpan = static_cast< T >(Span);
     static const auto wOffset = static_cast< T >(Offset);
@@ -253,17 +288,17 @@ template< typename T >
 class LinearFunctionPolicy
 {
 public:
-  static inline T compute(const T &iInput) restrict(amp)
+  static inline T compute(const T &iInput) restrict(cpu, amp)
   {
     return iInput;
   }
 };
 
-template< typename T, std::size_t LowerLimit, std::size_t HigherLimit >
+template< typename T, size_t LowerLimit, size_t HigherLimit >
 class SaturatedLinearFunctionPolicy
 {
 public:
-  static inline T compute(const T &iInput) restrict(amp)
+  static inline T compute(const T &iInput) restrict(cpu, amp)
   {
     static const auto wLowerLimit = static_cast< T >(LowerLimit);
     static const auto wHigherLimit = static_cast< T >(HigherLimit);

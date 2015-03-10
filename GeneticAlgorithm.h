@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <amp.h>
 
 template< typename T, typename _Individual, typename _IndividualInstantiator >
 class GeneticAlgorithm
@@ -12,79 +11,97 @@ public:
   typedef _IndividualInstantiator IndividualInstantiator;
   struct RatedIndividual;
   typedef std::vector< RatedIndividual > Population;
+  typedef std::vector< typename Population::iterator > RankedPopulationProxy;
 
   struct RatedIndividual
   {
-    RatedIndividual(IndividualInstantiator &&iIndividualInstantiator) : mIndividual(iIndividualInstantiator()), mScore(0.0) {}
-    RatedIndividual(const Individual &iIndividual) : mIndividual(iIndividual), mScore(0.0) {}
+    RatedIndividual(IndividualInstantiator &&iIndividualInstantiator) : mIndividual(iIndividualInstantiator()), mScore(0) {}
+    RatedIndividual(const Individual &iIndividual) : mIndividual(iIndividual), mScore(0) {}
     Individual mIndividual;
     value_type mScore;
   };
 
-  GeneticAlgorithm(std::size_t iInitialPopulationSize, IndividualInstantiator &&iIndividualInstantiator)
+  GeneticAlgorithm(size_t iInitialPopulationSize, IndividualInstantiator &&iIndividualInstantiator)
     : mMaxPopulationSize(iInitialPopulationSize)
     , mMinPopulationSize(mMaxPopulationSize * 3 / 4)
   {
     mPopulation.reserve(iInitialPopulationSize);
-    for (std::size_t wIndex = 0; wIndex < iInitialPopulationSize; ++wIndex)
+    mRankedPopulationProxy.reserve(iInitialPopulationSize);
+    for (size_t wIndex = 0; wIndex < iInitialPopulationSize; ++wIndex)
     {
-      mPopulation.emplace_back(iIndividualInstantiator);
+      mPopulation.emplace_back(iIndividualInstantiator());
+      mRankedPopulationProxy.emplace_back(mPopulation.end() - 1);
     }
   }
 
-  template< typename FitnessFunction, typename ReproductionFunction, typename PreGenerationSetup, typename PostGenerationEvaluation >
-  inline void runGenerations(std::size_t iNumberOfGenerations, FitnessFunction &&iFitnessFunction, ReproductionFunction &&iReproductionFunction, PreGenerationSetup &&iPreGenerationSetup, PostGenerationEvaluation &&iPostGenerationEvaluation)
+  template< typename FitnessEvaluation, typename ReproductionFunction >
+  inline void runGenerations(size_t iNumberOfGenerations, FitnessEvaluation &&iFitnessEvaluation, ReproductionFunction &&iReproductionFunction)
   {
-    for (std::size_t wGeneration = 0; wGeneration < iNumberOfGenerations && runOneGeneration(iFitnessFunction, iReproductionFunction, iPreGenerationSetup, iPostGenerationEvaluation); ++wGeneration);
+    runGenerations(iNumberOfGenerations, iFitnessEvaluation, iReproductionFunction, [](auto, auto) { return true; });
   }
 
-  template< typename FitnessFunction, typename ReproductionFunction, typename PreGenerationSetup, typename PostGenerationEvaluation >
-  inline bool runOneGeneration(FitnessFunction &&iFitnessFunction, ReproductionFunction &&iReproductionFunction, PreGenerationSetup &&iPreGenerationSetup, PostGenerationEvaluation &&iPostGenerationEvaluation)
+  template< typename FitnessEvaluation, typename ReproductionFunction, typename PostGenerationEvaluation >
+  inline void runGenerations(size_t iNumberOfGenerations, FitnessEvaluation &&iFitnessEvaluation, ReproductionFunction &&iReproductionFunction, PostGenerationEvaluation &&iPostGenerationEvaluation)
+  {
+    runGenerations(iNumberOfGenerations, iFitnessEvaluation, iReproductionFunction, iPostGenerationEvaluation, [](auto, auto) {});
+  }
+
+  template< typename FitnessEvaluation, typename ReproductionFunction, typename PreGenerationSetup, typename PostGenerationEvaluation >
+  inline void runGenerations(size_t iNumberOfGenerations, FitnessEvaluation &&iFitnessEvaluation, ReproductionFunction &&iReproductionFunction, PostGenerationEvaluation &&iPostGenerationEvaluation, PreGenerationSetup &&iPreGenerationSetup)
+  {
+    for (size_t wGeneration = 0; wGeneration < iNumberOfGenerations && runOneGeneration(iFitnessEvaluation, iReproductionFunction, iPostGenerationEvaluation, iPreGenerationSetup); ++wGeneration);
+  }
+
+  template< typename FitnessEvaluation, typename ReproductionFunction, typename PreGenerationSetup, typename PostGenerationEvaluation >
+  inline bool runOneGeneration(FitnessEvaluation &&iFitnessEvaluation, ReproductionFunction &&iReproductionFunction, PostGenerationEvaluation &&iPostGenerationEvaluation, PreGenerationSetup &&iPreGenerationSetup)
   {
     iPreGenerationSetup(begin(), end());
-    concurrency::array< RatedIndividual, 1 > wPopulationAmpArray(size(), begin(), end());
-    concurrency::parallel_for_each(wPopulationAmpArray.extent, [=, &wPopulationAmpArray](auto && iIndex) restrict(amp)
+    iFitnessEvaluation(mPopulation.begin(), mPopulation.end());
+    std::sort(begin(), end(), [](auto &&iLeft, auto &&iRight)
     {
-      wPopulationAmpArray[iIndex].mScore = iFitnessFunction(wPopulationAmpArray[iIndex].mIndividual);
+      return iLeft->mScore > iRight->mScore;
     });
-    std::sort(begin(), end(), [](decltype(*begin()) &&iLeft, decltype(*begin()) &&iRight)
+    std::for_each(begin(), begin() + (mMaxPopulationSize - mMinPopulationSize), [&](auto &&iRatedIndividual)
     {
-      return iLeft.mScore > iRight.mScore;
+      *iRatedIndividual = iReproductionFunction(begin(), end());
     });
-    while (mPopulation.size() > mMinPopulationSize)
-    {
-      mPopulation.pop_back();
-    }
-    while (mPopulation.size() < mMaxPopulationSize)
-    {
-      mPopulation.emplace_back(iReproductionFunction(begin(), end()));
-    }
     return iPostGenerationEvaluation(begin(), end());
   }
 
-  inline typename Population::iterator begin()
+  inline typename RankedPopulationProxy::iterator begin()
   {
-    return std::begin(mPopulation);
+    return std::begin(mRankedPopulationProxy);
   }
 
-  inline typename Population::iterator end()
+  inline typename RankedPopulationProxy::iterator end()
   {
-    return std::end(mPopulation);
+    return std::end(mRankedPopulationProxy);
   }
 
-  inline typename Population::size_type size()
+  inline typename RankedPopulationProxy::value_type & front()
   {
-    return mPopulation.size();
+    return *std::begin(mRankedPopulationProxy);
+  }
+
+  inline typename RankedPopulationProxy::value_type & back()
+  {
+    return *std::rbegin(mRankedPopulationProxy);
+  }
+
+  inline typename RankedPopulationProxy::size_type size()
+  {
+    return mRankedPopulationProxy.size();
   }
 
 private:
-  std::size_t mMaxPopulationSize;
-  std::size_t mMinPopulationSize;
+  size_t mMaxPopulationSize;
+  size_t mMinPopulationSize;
   Population mPopulation;
+  RankedPopulationProxy mRankedPopulationProxy;
 };
 
 template< typename T, typename Individual, typename IndividualInstantiator >
-GeneticAlgorithm< T, Individual, IndividualInstantiator > createGeneticAlgorithm(std::size_t iInitialPopulationSize, IndividualInstantiator &&iIndividualInstantiator)
+GeneticAlgorithm< T, Individual, IndividualInstantiator > createGeneticAlgorithm(size_t iInitialPopulationSize, IndividualInstantiator &&iIndividualInstantiator)
 {
   typedef GeneticAlgorithm< T, Individual, IndividualInstantiator > Ga;
   return Ga(iInitialPopulationSize, std::move(iIndividualInstantiator));
